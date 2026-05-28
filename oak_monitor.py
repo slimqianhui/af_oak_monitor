@@ -42,7 +42,7 @@ async def fetch_oak_available():
 
     text = content.lower()
 
-    if "oak" not in text:
+    if "cedar" not in text:
         print("OAK floor plan not found.")
         return []
 
@@ -55,7 +55,7 @@ async def fetch_oak_available():
     for line in lines:
         lower = line.lower()
 
-        if "oak" in lower:
+        if "cedar" in lower:
             capture = True
 
         if capture:
@@ -70,7 +70,7 @@ async def fetch_oak_available():
                     found.append(clean_line)
 
         # stop if another floor plan section begins
-        if capture and "floor plan" in lower and "oak" not in lower:
+        if capture and "floor plan" in lower and "cedar" not in lower:
             break
 
     unique = list(set(found))
