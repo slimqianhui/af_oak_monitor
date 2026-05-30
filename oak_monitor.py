@@ -34,7 +34,34 @@ async def fetch_oak_available():
         await page.goto(URL, wait_until="networkidle")
 
         # Wait for dynamic content
-        await page.wait_for_timeout(8000)
+        await page.wait_for_timeout(3000)
+
+        # Click "View All Floor Plans" button to expand hidden floor plans
+        try:
+            view_all_buttons = await page.locator('button:has-text("View All"), a:has-text("View All")').all()
+            for button in view_all_buttons:
+                text = await button.text_content()
+                if "view all" in text.lower() and "floor" in text.lower():
+                    print("Clicking 'View All Floor Plans' button...")
+                    await button.click()
+                    await page.wait_for_timeout(2000)
+                    break
+        except Exception as e:
+            print(f"Note: Could not click 'View All' button: {e}")
+
+        # Now look for the OAK section and click on it to expand details
+        try:
+            print("Looking for OAK floor plan...")
+            oak_title = await page.locator("text=Oak").first.locator("..")
+            await oak_title.scroll_into_view_if_needed()
+            await page.wait_for_timeout(500)
+            
+            # Click on the OAK card to expand it
+            oak_card = await page.locator(".floorplan").filter(has=page.locator("text=Oak")).first
+            await oak_card.click()
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"Note: Could not click OAK card: {e}")
 
         content = await page.content()
 
@@ -42,42 +69,78 @@ async def fetch_oak_available():
 
     text = content.lower()
 
-    if "cedar" not in text:
+    if "oak" not in text:
         print("OAK floor plan not found.")
         return []
 
-    found = []
-
-    lines = content.splitlines()
-
-    capture = False
-
-    for line in lines:
-        lower = line.lower()
-
-        if "cedar" in lower:
-            capture = True
-
-        if capture:
-            if (
-                "available" in lower
-                or "apply now" in lower
-                or "unit" in lower
-            ):
-                clean_line = line.strip()
-
-                if clean_line:
-                    found.append(clean_line)
-
-        # stop if another floor plan section begins
-        if capture and "floor plan" in lower and "cedar" not in lower:
-            break
-
-    unique = list(set(found))
-
-    print(f"Found {len(unique)} possible available entries.")
-
-    return unique
+    # Find all CTA buttons and their corresponding floor plans
+    import re
+    
+    # Pattern to find floor plan title + button combo
+    oak_button_pattern = r'floorplan-title[^>]*>.*?<p[^>]*class="floorplan-title-title[^>]*>\s*Oak\s*</p>.*?cta-btn[^>]*>.*?<div[^>]*class="v-btn__content"[^>]*>(.*?)</div>'
+    
+    match = re.search(oak_button_pattern, content, re.DOTALL | re.IGNORECASE)
+    
+    if not match:
+        print("OAK floor plan not found.")
+        return []
+    
+    button_text = match.group(1)
+    # Clean HTML
+    button_text = re.sub(r'<[^>]+>', '', button_text)
+    button_text = button_text.strip()
+    
+    print(f"OAK Button Text: {button_text}")
+    
+    # Check button status
+    button_lower = button_text.lower()
+    if "please call" in button_lower:
+        print("OAK floor plan: No availability")
+        return []
+    elif "view" in button_lower and "apartment" in button_lower:
+        print(f"OAK floor plan: {button_text}")
+        
+        # Extract OAK section details - look specifically after the OAK title and before the button
+        oak_title_pattern = r'floorplan-title[^>]*>.*?<p[^>]*class="floorplan-title-title[^>]*>\s*Oak\s*</p>(.*?)cta-btn'
+        oak_match = re.search(oak_title_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        if oak_match:
+            oak_details = oak_match.group(1)
+            
+            # Extract specs: beds, baths, sqft, price
+            specs = []
+            
+            # Find bed info
+            bed_match = re.search(r'(\d+)\s*Beds?', oak_details, re.IGNORECASE)
+            if bed_match:
+                specs.append(f"{bed_match.group(1)} Bed{'s' if int(bed_match.group(1)) > 1 else ''}")
+            
+            # Find bath info
+            bath_match = re.search(r'(\d+)\s*Baths?', oak_details, re.IGNORECASE)
+            if bath_match:
+                specs.append(f"{bath_match.group(1)} Bath{'s' if int(bath_match.group(1)) > 1 else ''}")
+            
+            # Find sqft info
+            sqft_match = re.search(r'(\d+)\s*Sq\.Ft', oak_details, re.IGNORECASE)
+            if sqft_match:
+                specs.append(f"{sqft_match.group(1)} Sq.Ft")
+            
+            # Find price info
+            price_match = re.search(r'Starting at:.*?\$[\d,]+', oak_details, re.IGNORECASE | re.DOTALL)
+            if price_match:
+                price_text = price_match.group(0)
+                price_text = re.sub(r'<[^>]+>|<!--.*?-->', '', price_text)
+                price_text = re.sub(r'\s+', ' ', price_text).strip()
+                specs.append(price_text)
+            
+            if specs:
+                print(f"  Details: {' | '.join(specs)}")
+        
+        # Return the button text (e.g., "View 1 Apartment" or "View 2 Apartments")
+        return [button_text]
+    else:
+        print(f"OAK floor plan: Unknown status - {button_text}")
+        return []
 
 
 def load_known():
